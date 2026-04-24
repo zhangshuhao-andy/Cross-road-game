@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>极限过马路 h2.0 - 开发者：张书豪</title>
+    <style>
+        :root {
+            --bg: #a2d2ff; --panel: rgba(255, 255, 255, 0.9); --text: #2b2d42; --accent: #3a86ff;
+        }
+        [data-theme="dark"] {
+            --bg: #1b263b; --panel: rgba(13, 27, 42, 0.95); --text: #e0e1dd; --accent: #00b4d8;
+        }
+
+        body {
+            margin: 0; background: var(--bg); height: 100vh;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; color: var(--text);
+            transition: background 0.6s ease;
+        }
+
+        #game-box {
+            position: relative; border: 6px solid #333; border-radius: 15px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.4); background: #27ae60;
+        }
+
+        /* 顶部切换按钮 */
+        .mode-btn {
+            position: fixed; top: 20px; right: 20px; z-index: 1000;
+            background: var(--panel); padding: 12px 20px; border-radius: 50px;
+            cursor: pointer; border: 2px solid var(--accent); font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        #hud {
+            position: absolute; top: 15px; left: 15px; right: 15px;
+            display: flex; justify-content: space-between; pointer-events: none; z-index: 100;
+        }
+        .stat { background: rgba(0,0,0,0.7); color: #fff; padding: 6px 15px; border-radius: 20px; font-size: 14px; }
+        .stat span { color: #ffd700; font-weight: bold; }
+
+        /* 主界面面板 */
+        #menu {
+            position: absolute; inset: 0; background: var(--panel);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 500; backdrop-filter: blur(12px); border-radius: 9px;
+        }
+        .btn {
+            width: 200px; padding: 15px; margin: 10px; border: none; border-radius: 12px;
+            background: var(--accent); color: white; font-weight: bold; font-size: 16px;
+            cursor: pointer; transition: 0.3s; box-shadow: 0 4px 0 rgba(0,0,0,0.2);
+        }
+        .btn:hover { transform: scale(1.05); filter: brightness(1.1); }
+        .btn-gray { background: #6c757d; }
+
+        /* 加载动画 */
+        #loader {
+            position: fixed; inset: 0; background: #0d1b2a; z-index: 2000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .load-bar { width: 200px; height: 6px; background: #333; border-radius: 3px; margin-top: 20px; overflow: hidden; }
+        .load-fill { width: 0%; height: 100%; background: var(--accent); transition: 0.1s; }
+
+        /* 商店弹窗 */
+        .modal {
+            display: none; position: absolute; inset: 30px; background: var(--panel);
+            border-radius: 20px; z-index: 600; padding: 25px; flex-direction: column;
+            border: 2px solid var(--accent);
+        }
+        .item-list { flex: 1; overflow-y: auto; margin: 15px 0; }
+        .item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #ccc; }
+    </style>
+</head>
+<body data-theme="light">
+
+<div id="loader">
+    <h1 style="color:white; letter-spacing: 4px;">RIVER h2.0</h1>
+    <div class="load-bar"><div id="load-p" class="load-fill"></div></div>
+</div>
+
+<div class="mode-btn" onclick="toggleMode()">🌓 模式切换 (黑/白)</div>
+
+<div id="game-box">
+    <div id="hud">
+        <div class="stat">目标: <span id="u-score">0</span>/100</div>
+        <div class="stat">💰 <span id="u-coins">0</span></div>
+        <div class="stat">❤️ <span id="u-lives">3</span></div>
+    </div>
+
+    <div id="menu">
+        <h1 style="margin:0; font-size:40px;">极限过马路 <span style="font-size:18px; color:var(--accent)">h2.0</span></h1>
+        <p style="opacity:0.7">开发者：张书豪</p>
+        <button class="btn" onclick="start()">开始游戏</button>
+        <button class="btn btn-gray" onclick="openM('shop')">SHOP 商店</button>
+        <button class="btn btn-gray" onclick="openM('about')">关于版本</button>
+    </div>
+
+    <div id="shop-modal" class="modal">
+        <h2 style="margin:0">技能商店 (10💰/个)</h2>
+        <div class="item-list">
+            <div class="item"><span>🕒 时间静止 (车辆减速)</span><button onclick="buy('slow')">购买</button></div>
+            <div class="item"><span>🧲 磁力吸附 (自动拾取)</span><button onclick="buy('mag')">购买</button></div>
+            <div class="item"><span>🛡️ 充能护盾 (防撞一次)</span><button onclick="buy('shield')">购买</button></div>
+            <div class="item"><span>👟 水上行走 (过河神技)</span><button onclick="buy('water')">购买</button></div>
+            <div class="item"><span>💖 额外生命 (多一条命)</span><button onclick="buy('life')">购买</button></div>
+        </div>
+        <button class="btn" onclick="closeM()" style="width:100%">关闭</button>
+    </div>
+
+    <div id="about-modal" class="modal">
+        <h2>开发者：张书豪</h2>
+        <p>这是 H 系列（河流版）的重大更新：</p>
+        <ul>
+            <li>修复了空格键操作，现支持 W/↑/Space。</li>
+            <li>增加了沉没荷叶机制，在荷叶上停留不能超过1.5秒。</li>
+            <li>金币在地图生成时预先埋设，每场固定。</li>
+            <li>目标提升至 100 层。</li>
+        </ul>
+        <button class="btn" onclick="closeM()" style="width:100%">了解</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const GRID = 50, COLS = 11, ROWS = 14;
+canvas.width = COLS * GRID; canvas.height = ROWS * GRID;
+
+// 数据持久化
+let storage = { coins: parseInt(localStorage.getItem('zsh_h_coins')) || 0 };
+let game = { running: false, score: 0, lives: 3, camY: 0, frame: 0 };
+let player = { x: 5, y: 0, offX: 0, shield: false, skills: new Set(), sinkT: 0 };
+let world = [], entities = [];
+
+window.onload = () => {
+    let p = 0, fill = document.getElementById('load-p');
+    const t = setInterval(() => {
+        p += 4; fill.style.width = p + "%";
+        if(p >= 100) { clearInterval(t); document.getElementById('loader').style.display='none'; }
+    }, 40);
+    refreshUI();
+};
+
+function toggleMode() {
+    const b = document.body;
+    b.dataset.theme = b.dataset.theme === 'light' ? 'dark' : 'light';
+}
+
+function openM(id) { document.getElementById(id+'-modal').style.display = 'flex'; }
+function closeM() { document.querySelectorAll('.modal').forEach(m=>m.style.display='none'); }
+
+function refreshUI() {
+    document.getElementById('u-score').innerText = game.score;
+    document.getElementById('u-coins').innerText = storage.coins;
+    document.getElementById('u-lives').innerText = game.lives;
+    localStorage.setItem('zsh_h_coins', storage.coins);
+}
+
+function buy(s) {
+    if(storage.coins >= 10) {
+        storage.coins -= 10; player.skills.add(s);
+        if(s==='shield') player.shield = true;
+        if(s==='life') game.lives++;
+        refreshUI(); alert("特技已购入！");
+    } else alert("金币不足！");
+}
+
+/**
+ * 核心引擎
+ */
+function buildWorld() {
+    world = []; entities = [];
+    for(let i=0; i<=110; i++) {
+        let type = 'safe';
+        if(i > 0 && i < 100) {
+            let r = Math.random();
+            if(r < 0.2) type = 'grass';
+            else if(r < 0.5) type = 'road';
+            else if(r < 0.8) type = 'water'; // H版河流概率增加
+            else type = 'rail';
+        }
+        let row = {
+            y: i, type,
+            speed: (1.2 + Math.random()*1.5) * (1 + i/100),
+            dir: Math.random() > 0.5 ? 1 : -1,
+            wait: 0,
+            coinX: (Math.random() < 0.12) ? Math.floor(Math.random()*COLS) : -1
+        };
+        world.push(row);
+    }
+}
+
+function start() {
+    game.score = 0; game.lives = 3; player.x = 5; player.y = 0; player.offX = 0;
+    game.camY = 0; buildWorld(); game.running = true;
+    document.getElementById('menu').style.display = 'none';
+    refreshUI(); loop();
+}
+
+function loop() {
+    if(!game.running) return;
+    update();
+    draw();
+    game.frame++;
+    requestAnimationFrame(loop);
+}
+
+function update() {
+    // 相机平滑
+    let targetY = player.y * GRID - GRID * 7;
+    game.camY += (Math.max(0, targetY) - game.camY) * 0.1;
+
+    let onPlatform = false;
+    let currentRow = world[player.y];
+
+    // 生成与移动
+    world.forEach(row => {
+        if(row.type !== 'grass' && row.type !== 'safe') {
+            row.wait--;
+            if(row.wait <= 0) {
+                let s = row.speed;
+                if(row.type === 'rail') s *= 4;
+                if(row.type === 'water') s *= 0.6;
+                if(player.skills.has('slow') && row.type !== 'water') s *= 0.5;
+
+                entities.push({
+                    x: row.dir > 0 ? -400 : canvas.width + 100,
+                    y: row.y * GRID,
+                    w: row.type === 'rail' ? 400 : (row.type === 'water' ? (Math.random() < 0.3 ? 50 : 150) : 80),
+                    h: GRID - 10,
+                    speed: s, dir: row.dir, type: row.type,
+                    isLeaf: (row.type === 'water' && Math.random() < 0.3) // 是否是荷叶
+                });
+                row.wait = (row.type === 'rail' ? 200 : 120) + Math.random()*100;
+            }
+        }
+    });
+
+    // 交互逻辑
+    for(let i=entities.length-1; i>=0; i--) {
+        let e = entities[i];
+        e.x += e.speed * e.dir;
+
+        let px = player.x * GRID + player.offX + GRID/2;
+        let py = player.y * GRID + GRID/2;
+
+        if(py > e.y && py < e.y + GRID) {
+            if(e.type === 'water') { // 木板或荷叶
+                if(px > e.x && px < e.x + e.w) {
+                    onPlatform = true;
+                    player.offX += e.speed * e.dir;
+                    if(e.isLeaf) { // 荷叶沉没逻辑
+                        e.sink = (e.sink || 0) + 1;
+                        if(e.sink > 90) { entities.splice(i, 1); onPlatform = false; }
+                    }
+                }
+            } else { // 车或火车
+                if(px > e.x && px < e.x + e.w) die();
+            }
+        }
+        if(e.x < -600 || e.x > canvas.width + 600) entities.splice(i, 1);
+    }
+
+    // 金币磁铁
+    if(currentRow.coinX !== -1) {
+        let dist = Math.abs(currentRow.coinX - (player.x + player.offX/GRID));
+        if(dist < (player.skills.has('mag') ? 2 : 0.6)) {
+            storage.coins++; currentRow.coinX = -1; refreshUI();
+        }
+    }
+
+    // 死亡判定
+    if(currentRow.type === 'water' && !onPlatform && !player.skills.has('water')) die();
+    let finalPX = player.x * GRID + player.offX;
+    if(finalPX < -20 || finalPX > canvas.width - 20) die();
+}
+
+function die() {
+    if(player.shield) { player.shield = false; player.y++; player.offX = 0; return; }
+    game.lives--; refreshUI();
+    if(game.lives <= 0) {
+        game.running = false; document.getElementById('menu').style.display = 'flex';
+        document.querySelector('#menu h1').innerText = "挑战失败";
+    } else {
+        player.y = Math.max(0, player.y - 2); player.offX = 0;
+        while(world[player.y].type === 'water' || world[player.y].type === 'road') player.y--;
+    }
+}
+
+/**
+ * 渲染系统
+ */
+function draw() {
+    ctx.clearRect(0,0,canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(0, canvas.height - GRID + game.camY);
+
+    // 1. 地型
+    world.forEach(row => {
+        let ry = -row.y * GRID;
+        if(ry < -game.camY - canvas.height - GRID || ry > -game.camY + GRID) return;
+
+        if(row.type === 'safe' || row.type === 'grass') {
+            ctx.fillStyle = row.type === 'safe' ? '#2ecc71' : '#27ae60';
+            ctx.fillRect(0, ry, canvas.width, GRID);
+            if(row.type === 'safe') { // 终点线
+                ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.strokeRect(5, ry+5, canvas.width-10, GRID-10);
+            }
+        } else if(row.type === 'road') {
+            ctx.fillStyle = '#444'; ctx.fillRect(0, ry, canvas.width, GRID);
+            ctx.fillStyle = '#555'; ctx.fillRect(0, ry, canvas.width, 2);
+        } else if(row.type === 'rail') {
+            ctx.fillStyle = '#111'; ctx.fillRect(0, ry, canvas.width, GRID);
+            if(row.wait < 40) { // 红光预警
+                ctx.fillStyle = `rgba(255,0,0,${Math.abs(Math.sin(game.frame*0.2))*0.4})`;
+                ctx.fillRect(0, ry, canvas.width, GRID);
+            }
+        } else if(row.type === 'water') {
+            ctx.fillStyle = '#0077b6'; ctx.fillRect(0, ry, canvas.width, GRID);
+        }
+
+        if(row.coinX !== -1) {
+            ctx.fillStyle = '#ffd700'; ctx.beginPath();
+            ctx.arc(row.coinX*GRID+25, ry+25 + Math.sin(game.frame*0.1)*5, 10, 0, Math.PI*2); ctx.fill();
+        }
+    });
+
+    // 2. 实体
+    entities.forEach(e => {
+        let ey = -e.y + 5;
+        if(e.type === 'water') {
+            ctx.fillStyle = e.isLeaf ? (e.sink > 60 ? '#e63946' : '#2d6a4f') : '#764134';
+            ctx.beginPath(); ctx.roundRect(e.x, ey, e.w, e.h, e.isLeaf ? 25 : 5); ctx.fill();
+        } else {
+            ctx.fillStyle = e.type === 'rail' ? '#d90429' : '#00b4d8';
+            ctx.fillRect(e.x, ey, e.w, e.h);
+        }
+    });
+
+    // 3. 玩家
+    let px = player.x * GRID + player.offX + 25;
+    let py = -player.y * GRID + 25;
+    ctx.fillStyle = player.shield ? '#00f2ff' : '#ffd700';
+    ctx.beginPath(); ctx.arc(px, py, 18, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#000'; ctx.fillRect(px+4, py-8, 3, 3); ctx.fillRect(px-7, py-8, 3, 3);
+
+    ctx.restore();
+}
+
+/**
+ * 操作
+ */
+window.addEventListener('keydown', e => {
+    if(!game.running) return;
+    let nx = player.x, ny = player.y;
+    if(e.key === 'w' || e.key === 'ArrowUp' || e.code === 'Space') ny += 1;
+    else if(e.key === 'a' || e.key === 'ArrowLeft') nx--;
+    else if(e.key === 'd' || e.key === 'ArrowRight') nx++;
+
+    if(nx >= 0 && nx < COLS && ny >= player.y) {
+        player.x = nx; player.y = ny; player.offX = 0;
+        if(player.y > game.score) game.score = player.y;
+        refreshUI();
+        if(game.score >= 100) {
+            game.running = false; document.getElementById('menu').style.display = 'flex';
+            document.querySelector('#menu h1').innerText = "🏆 登峰造极！";
+        }
+    }
+});
+</script>
+</body>
+</html>
