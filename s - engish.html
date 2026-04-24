@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Crossy Road s1.0 - Mobile by Zhang Shuhao</title>
+    <style>
+        :root { --main: #ff4757; --bg: #2f3542; --panel: rgba(255,255,255,0.95); }
+        
+        body {
+            margin: 0; padding: 0; background: var(--bg);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100vh; font-family: sans-serif; overflow: hidden; touch-action: none;
+        }
+
+        #game-cont { position: relative; width: 100vw; height: 100vh; background: #27ae60; }
+        canvas { display: block; width: 100%; height: 100%; object-fit: contain; }
+
+        /* Mobile HUD */
+        #hud {
+            position: absolute; top: 10px; width: 100%;
+            display: flex; justify-content: space-around; pointer-events: none; z-index: 100;
+        }
+        .tag { background: rgba(0,0,0,0.6); color: #fff; padding: 5px 12px; border-radius: 15px; font-size: 14px; }
+
+        /* Overlay */
+        #ui-layer {
+            position: absolute; inset: 0; background: var(--panel);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 500; text-align: center; padding: 20px;
+        }
+
+        .m-btn {
+            width: 80%; max-width: 250px; padding: 18px; margin: 10px; border: none;
+            border-radius: 50px; background: var(--main); color: white;
+            font-size: 20px; font-weight: bold; box-shadow: 0 5px 15px rgba(255,71,87,0.3);
+        }
+
+        /* Shop Modal */
+        .modal {
+            display: none; position: absolute; inset: 10%; background: #fff;
+            border-radius: 20px; z-index: 600; flex-direction: column; padding: 20px;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+        .list { flex: 1; overflow-y: auto; text-align: left; }
+        .row { display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid #eee; }
+
+        /* Controls Tip */
+        #tip {
+            position: absolute; bottom: 20px; width: 100%; text-align: center;
+            color: white; opacity: 0.6; font-size: 12px; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-cont">
+    <div id="hud">
+        <div class="tag">🚩 <span id="s-score">0</span>/100</div>
+        <div class="tag">💰 <span id="s-coins">0</span></div>
+        <div class="tag">❤️ <span id="s-lives">3</span></div>
+    </div>
+
+    <div id="ui-layer">
+        <h1 style="color:var(--main); margin:0;">CROSSY ROAD S</h1>
+        <p>MOBILE v1.0 | Developer: Zhang Shuhao</p>
+        <button class="m-btn" onclick="start()">START</button>
+        <button class="m-btn" style="background:#ffa502" onclick="showM('shop')">SKILL SHOP</button>
+        <div style="margin-top:20px; font-size:14px; color:#666;">
+            Tap to move forward · Swipe left/right to change lanes
+        </div>
+    </div>
+
+    <div id="shop-modal" class="modal">
+        <h3>Mobile Skill Pack (10💰)</h3>
+        <div class="list">
+            <div class="row"><span>🛡️ Auto Shield</span> <button onclick="buy('shield')">BUY</button></div>
+            <div class="row"><span>🧲 Magnet</span> <button onclick="buy('mag')">BUY</button></div>
+            <div class="row"><span>🕒 Slow Motion</span> <button onclick="buy('slow')">BUY</button></div>
+            <div class="row"><span>💖 Extra Life</span> <button onclick="buy('life')">BUY</button></div>
+        </div>
+        <button class="m-btn" onclick="closeM()">CLOSE</button>
+    </div>
+
+    <div id="tip">Swipe or tap to play</div>
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const GRID = 50, COLS = 9, ROWS = 16;
+canvas.width = COLS * GRID; canvas.height = ROWS * GRID;
+
+let storage = { coins: parseInt(localStorage.getItem('zsh_s_coins')) || 0 };
+let game = { active: false, score: 0, lives: 3, camY: 0, frame: 0 };
+let player = { x: 4, y: 0, shield: false, skills: new Set() };
+let world = [], entities = [];
+
+// Mobile touch variables
+let touchX = 0, touchY = 0;
+
+function showM(id) { document.getElementById(id+'-modal').style.display = 'flex'; }
+function closeM() { document.querySelectorAll('.modal').forEach(m=>m.style.display='none'); }
+
+function refresh() {
+    document.getElementById('s-score').innerText = game.score;
+    document.getElementById('s-coins').innerText = storage.coins;
+    document.getElementById('s-lives').innerText = game.lives;
+    localStorage.setItem('zsh_s_coins', storage.coins);
+}
+
+function buy(s) {
+    if(storage.coins >= 10) {
+        storage.coins -= 10; player.skills.add(s);
+        if(s==='shield') player.shield = true;
+        if(s==='life') game.lives++;
+        refresh(); alert("Skill unlocked!");
+    } else alert("Not enough coins!");
+}
+
+function start() {
+    game.score = 0; game.lives = 3; player.x = 4; player.y = 0;
+    game.camY = 0; entities = [];
+    buildMap(); game.active = true;
+    document.getElementById('ui-layer').style.display = 'none';
+    refresh(); loop();
+}
+
+function buildMap() {
+    world = [];
+    for(let i=0; i<=110; i++) {
+        let type = 'safe';
+        if(i > 0 && i < 100) {
+            let r = Math.random();
+            type = r < 0.3 ? 'grass' : (r < 0.85 ? 'road' : 'rail');
+        }
+        world.push({
+            y: i, type,
+            speed: (1.0 + Math.random()*1.5) * (1 + i/100),
+            dir: Math.random() > 0.5 ? 1 : -1,
+            wait: 0,
+            coinX: (Math.random() < 0.15) ? Math.floor(Math.random()*COLS) : -1
+        });
+    }
+}
+
+function loop() {
+    if(!game.active) return;
+    update(); draw();
+    game.frame++;
+    requestAnimationFrame(loop);
+}
+
+function update() {
+    let targetY = player.y * GRID - GRID * 8;
+    game.camY += (Math.max(0, targetY) - game.camY) * 0.1;
+
+    world.forEach(row => {
+        if(row.type === 'road' || row.type === 'rail') {
+            row.wait--;
+            if(row.wait <= 0) {
+                let isR = row.type === 'rail';
+                let s = isR ? row.speed*4.5 : row.speed;
+                if(player.skills.has('slow')) s *= 0.6;
+                entities.push({
+                    x: row.dir > 0 ? -300 : canvas.width + 50,
+                    y: row.y * GRID,
+                    w: isR ? 400 : 70 + Math.random()*30,
+                    h: GRID - 12, speed: s, dir: row.dir, type: row.type
+                });
+                row.wait = (isR ? 180 : 110) + Math.random()*100;
+            }
+        }
+        // Magnet
+        if(row.coinX !== -1) {
+            let dx = Math.abs(row.coinX - player.x), dy = Math.abs(row.y - player.y);
+            if(dx < (player.skills.has('mag')?3:0.6) && dy < (player.skills.has('mag')?3:0.6)) {
+                storage.coins++; row.coinX = -1; refresh();
+                if(window.navigator.vibrate) window.navigator.vibrate(10);
+            }
+        }
+    });
+
+    for(let i=entities.length-1; i>=0; i--) {
+        let e = entities[i];
+        e.x += e.speed * e.dir;
+        let px = player.x*GRID + 15, py = player.y*GRID + 15;
+        if(px < e.x + e.w && px + 20 > e.x && py < e.y + e.h && py + 20 > e.y) {
+            if(player.shield) { player.shield = false; entities.splice(i,1); }
+            else die();
+        }
+        if(e.x < -500 || e.x > canvas.width + 500) entities.splice(i, 1);
+    }
+}
+
+function die() {
+    if(window.navigator.vibrate) window.navigator.vibrate(100);
+    game.lives--; refresh();
+    if(game.lives <= 0) {
+        game.active = false; document.getElementById('ui-layer').style.display = 'flex';
+        document.querySelector('#ui-layer h1').innerText = "GAME OVER";
+    } else {
+        player.y = Math.max(0, player.y - 1);
+        while(world[player.y].type === 'road' || world[player.y].type === 'rail') player.y--;
+    }
+}
+
+function draw() {
+    ctx.clearRect(0,0,canvas.width, canvas.height);
+    ctx.save();
+    ctx.translate(0, canvas.height - GRID + game.camY);
+
+    world.forEach(row => {
+        let ry = -row.y * GRID;
+        if(ry < -game.camY - canvas.height - GRID || ry > -game.camY + GRID) return;
+        
+        ctx.fillStyle = row.type === 'safe' ? '#2ecc71' : (row.type === 'grass' ? '#27ae60' : (row.type === 'rail' ? '#1e272e' : '#57606f'));
+        ctx.fillRect(0, ry, canvas.width, GRID);
+
+        if(row.type === 'rail' && row.wait < 40) {
+            ctx.fillStyle = 'rgba(255,0,0,0.3)'; ctx.fillRect(0, ry, canvas.width, GRID);
+        }
+        if(row.coinX !== -1) {
+            ctx.fillStyle = '#f1c40f'; ctx.beginPath();
+            ctx.arc(row.coinX*GRID+25, ry+25, 10, 0, Math.PI*2); ctx.fill();
+        }
+    });
+
+    entities.forEach(e => {
+        ctx.fillStyle = e.type === 'rail' ? '#eb4d4b' : '#70a1ff';
+        ctx.beginPath(); ctx.roundRect(e.x, -e.y+6, e.w, e.h, 8); ctx.fill();
+    });
+
+    let px = player.x*GRID+25, py = -player.y*GRID+25;
+    if(player.shield) { ctx.strokeStyle='#00d2d3'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(px,py,25,0,Math.PI*2); ctx.stroke(); }
+    ctx.fillStyle = '#ff9f43'; ctx.beginPath(); ctx.arc(px, py, 18, 0, Math.PI*2); ctx.fill();
+
+    ctx.restore();
+}
+
+/**
+ * Mobile Touch Controls
+ */
+canvas.addEventListener('touchstart', e => {
+    touchX = e.touches[0].clientX;
+    touchY = e.touches[0].clientY;
+}, false);
+
+canvas.addEventListener('touchend', e => {
+    if(!game.active) return;
+    let dx = e.changedTouches[0].clientX - touchX;
+    let dy = e.changedTouches[0].clientY - touchY;
+
+    if(Math.abs(dx) > 30) { // Swipe left/right
+        if(dx > 0 && player.x < COLS - 1) player.x++;
+        else if(dx < 0 && player.x > 0) player.x--;
+    } else { // Tap -> move forward
+        player.y++;
+        if(player.y > game.score) game.score = player.y;
+        if(game.score >= 100) {
+            game.active = false; document.getElementById('ui-layer').style.display = 'flex';
+            document.querySelector('#ui-layer h1').innerText = "🏆 VICTORY!";
+        }
+    }
+    refresh();
+}, false);
+</script>
+</body>
+</html>
